@@ -4,9 +4,16 @@ This project is a practical competitor-research workflow for growth teams: pull 
 
 The implementation is intentionally lean. On the backend, ad scraping, filtering, persistence, and AI endpoints all live in one controller for speed of iteration and easy ownership. On the frontend, the app keeps search orchestration in one place and presents AI outputs where they are immediately actionable.
 
+## Live Access
+
+- Frontend: [https://ad-intel-frontend.onrender.com](https://ad-intel-frontend.onrender.com)
+- Backend API: [https://ad-intel-api.onrender.com](https://ad-intel-api.onrender.com)
+
+Note: The application is fully deployed on Render. While it can run locally, the online version is recommended for immediate testing.
+
 ## Why this architecture
 
-We use MongoDB as a cache layer, not just storage. That choice cuts down Apify spend and makes repeat searches feel much faster.
+We use MongoDB as an active 2-hour TTL-style cache layer, not just storage. On every fetch request, the server checks for recent brand data first and returns it immediately when available. That avoids redundant scraping, protects Apify quota, and makes repeat searches feel instant.
 
 We keep strict brand filtering because quality matters more than volume for decision-making. If a search for `"Vans"` starts mixing in unrelated advertisers, every AI downstream feature gets noisier. It's better to show fewer results you can trust than more results you can't.
 
@@ -22,6 +29,11 @@ We keep AI endpoints focused:
 - Database: MongoDB + Mongoose (`Ad` is the single model)
 - Scraping: Apify client with `apify/facebook-ads-scraper`
 - AI: Groq via OpenAI-compatible SDK (`llama-3.3-70b-versatile`)
+
+## Configuration highlights
+
+- Scraping provider: Apify (Meta Ads Library actor)
+- AI provider: Groq, using Llama 3.3 (`llama-3.3-70b-versatile`) for analysis routes
 
 ## Project structure
 
@@ -128,29 +140,25 @@ That does mean fewer matches in some edge cases. We accept that tradeoff because
 - Explicit loading states in UI so users always know whether the app is searching, ready, or failed.
 - Graceful failure paths so partial outages (Apify or Groq) do not crash the app.
 
-### What I’d do next for scale
+## Usage Notes
 
-- Move scrape + AI-heavy tasks to queued workers.
-- Add TTL caching for high-frequency brand lookups.
-- Add stronger observability (provider latency, parse-failure rate, no-result rate, token cost).
+**Efficiency & Caching:** The system implements a 2-hour server-side cache. Repeat searches for the same brand within this window are served instantly from MongoDB.
 
-## Personal reflections
+**API Quota:** The app uses Apify's free tier. If the search limit is reached, you can still test the AI features using cached data from previous searches (e.g., `Nike`, `Coca-Cola`).
 
-### Assumptions I made
+## Written questions
 
-I optimized for teams that care about official brand creative, not broad keyword discovery. That drove the strict filtering strategy and shaped the UX around confidence in the returned data.
+**Q1: What assumptions did you make?**  
+I assumed a 2-hour window is sufficient for ad creative consistency and that the advertiser's page name is the primary filter for brand relevance.
 
-I also assumed copy text is enough signal for a strong V1 insight experience; full image semantics can come later.
+**Q2: What are the biggest limitations of your current approach?**  
+Dependency on a single third-party scraper (Apify) and the 20-30s latency required for initial 'cold' searches of new brands.
 
-### Current limitations
+**Q3: If this needed to support 100× more usage, what would you change first?**  
+Implement an asynchronous message queue for scraping tasks and migrate to a distributed cache like Redis for global scaling.
 
-This workflow depends on external providers and upstream page structure. If Meta or provider behavior changes, reliability can degrade quickly without strong monitoring.
+**Q4: How would you monitor this system in production?**  
+Track scraping success rates and latency via Prometheus, implement structured logging for API errors, and set up alerts for quota depletion.
 
-AI routes are stateless by design. They answer well for a single brand snapshot, but they do not yet build a long-lived intelligence layer over time.
-
-### If I had more time
-
-I would add:
-- historical creative trend tracking
-- image-level analysis for visual motifs
-- exportable outputs (strategy brief / CSV) for sharing with non-technical stakeholders
+**Q5: What would you improve next if you had more time?**  
+Add multi-competitor side-by-side comparison dashboards and implement visual analysis of ad images using a Vision LLM.
